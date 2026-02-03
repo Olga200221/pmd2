@@ -22,14 +22,19 @@ fun PlanetInfoScreen(selectedIndex: Int) {
         AndroidView(factory = {
             val glView = GLSurfaceView(it)
             glView.setEGLContextClientVersion(2)
-            glView.setRenderer(PlanetRenderer(context, selectedIndex))
+            // Для Луны (индекс 9) используем Phong освещение
+            glView.setRenderer(PlanetRenderer(context, selectedIndex, usePhong = selectedIndex == 9))
             glView
         })
     }
 }
 
 // Рендерер для выбранной планеты/спутника
-class PlanetRenderer(private val context: Context, private val index: Int) : GLSurfaceView.Renderer {
+class PlanetRenderer(
+    private val context: Context,
+    private val index: Int,
+    private val usePhong: Boolean = false
+) : GLSurfaceView.Renderer {
 
     private lateinit var sphere: Sphere
     private val viewMatrix = FloatArray(16)
@@ -48,9 +53,25 @@ class PlanetRenderer(private val context: Context, private val index: Int) : GLS
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
 
-        // Загружаем сферу с текстурой выбранного объекта
-        val textureRes = if (index < textures.size) textures[index] else R.drawable.earth
-        sphere = Sphere(context, textureRes, 1f)
+        // Инициализация шейдеров после создания контекста
+        ShaderProgram.initStandardProgram()
+        if (usePhong) {
+            ShaderProgram.initPhongShader()
+        }
+
+        // Улучшенный выбор текстуры
+        val textureRes = when {
+            usePhong -> R.drawable.moon                      // если Phong → точно Луна
+            index in textures.indices -> textures[index]     // безопасно берём из списка
+            else -> R.drawable.earth                         // fallback только если совсем неверный индекс
+        }
+
+        // Для отладки — посмотри в Logcat
+        android.util.Log.d("PlanetRenderer",
+            "index = $index, usePhong = $usePhong, texture = $textureRes"
+        )
+
+        sphere = Sphere(context, textureRes, 1f, usePhong = usePhong)
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {

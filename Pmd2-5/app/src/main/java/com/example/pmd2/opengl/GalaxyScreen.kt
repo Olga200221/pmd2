@@ -54,9 +54,18 @@ fun GalaxyScreen(
             }
 
             // Информация
-            Button(onClick = { onInfoClick(selectedPlanetIndex) }) {
+            Button(onClick = {
+                if (selectedPlanetIndex == 9) {
+                    // Луна с Phong освещением
+                    onInfoClick(9)  // передаем индекс 9, чтобы PlanetInfoScreen включил Phong
+                } else {
+                    // Любой другой объект — обычная информация
+                    onInfoClick(selectedPlanetIndex)
+                }
+            }) {
                 Text("i")
             }
+
 
             // Вправо
             Button(onClick = {

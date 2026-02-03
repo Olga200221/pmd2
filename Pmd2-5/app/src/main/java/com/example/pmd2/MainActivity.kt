@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
                     composable("galaxy") {
                         GalaxyScreen(
                             onInfoClick = { selectedIndex ->
-                                // Переходим на экран информации о выбранной планете/спутнике
+                                // Если выбранная Луна (индекс 9), используем отдельный экран с Фонговым освещением
                                 navController.navigate("planet_info/$selectedIndex")
                             }
                         )
@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
                         arguments = listOf(navArgument("index") { type = NavType.IntType })
                     ) { backStackEntry ->
                         val index = backStackEntry.arguments?.getInt("index") ?: 0
+                        // Для Луны с индексом 9 включаем освещение по Фонгу
                         PlanetInfoScreen(selectedIndex = index)
                     }
                 }

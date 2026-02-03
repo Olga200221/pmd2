@@ -3,7 +3,12 @@ package com.example.pmd2.opengl
 import android.content.Context
 import android.opengl.Matrix
 
-class Sphere(context: Context, textureRes: Int, val radius: Float) {
+class Sphere(
+    context: Context,
+    textureRes: Int,
+    val radius: Float,
+    private val usePhong: Boolean = false // новый параметр для Phong-освещения
+) {
 
     val modelMatrix = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
     private val textureId: Int
@@ -17,13 +22,20 @@ class Sphere(context: Context, textureRes: Int, val radius: Float) {
         // Загружаем текстуру
         textureId = ShaderProgram.loadTexture(context, textureRes)
 
-        // Генерируем данные сферы (позиции, текстурные координаты и индексы)
-        val sphereData = ShaderProgram.createSphereData(1.0f, 48, 48)
+        // Генерируем данные сферы с нормалями для Phong
+        val sphereData = ShaderProgram.createSphereData(1.0f, 48, 48, usePhong)
 
         // Создаем отдельные VBO/IBO для этой сферы
         vbo = ShaderProgram.createVBO(sphereData.vertices)
         ibo = ShaderProgram.createIBO(sphereData.indices)
         vertexCount = sphereData.indices.size
+
+        // Инициализация шейдера: Phong или стандартный
+        if (usePhong) {
+            ShaderProgram.initPhongShader()
+        } else {
+            ShaderProgram.initStandardShader()
+        }
     }
 
     fun draw(vpMatrix: FloatArray) {
@@ -33,7 +45,11 @@ class Sphere(context: Context, textureRes: Int, val radius: Float) {
         Matrix.scaleM(scaledMatrix, 0, radius, radius, radius)
         Matrix.multiplyMM(scaledMatrix, 0, modelMatrix, 0, scaledMatrix, 0)
 
-        // Отрисовка сферы с уникальной текстурой и буферами
-        ShaderProgram.drawSphere(vpMatrix, scaledMatrix, textureId, vbo, ibo, vertexCount)
+        // Отрисовка сферы с выбранным шейдером
+        if (usePhong) {
+            ShaderProgram.drawSpherePhong(vpMatrix, scaledMatrix, textureId, vbo, ibo, vertexCount)
+        } else {
+            ShaderProgram.drawSphere(vpMatrix, scaledMatrix, textureId, vbo, ibo, vertexCount)
+        }
     }
 }

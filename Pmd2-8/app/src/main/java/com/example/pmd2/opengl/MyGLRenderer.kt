@@ -32,7 +32,7 @@ class MyGLRenderer(private val context: Context) : GLSurfaceView.Renderer {
     private val viewMatrix = FloatArray(16)
     private val vpMatrix = FloatArray(16)
     private val orthoMatrix = FloatArray(16)
-
+    private val earthMatrix = FloatArray(16)  // ← добавь эту строку
     private var angleSun = 0f
     private val planetAngles = FloatArray(8) { 0f }
     private var moonAngle = 0f
@@ -55,7 +55,7 @@ class MyGLRenderer(private val context: Context) : GLSurfaceView.Renderer {
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
-        GLES20.glEnable(GLES20.GL_BLEND)           // ← включаем смешивание для прозрачности
+        GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
 
         galaxyTexture = TextureHelper.loadTexture(context, R.drawable.galaxy)
@@ -130,15 +130,33 @@ class MyGLRenderer(private val context: Context) : GLSurfaceView.Renderer {
             if (selectedPlanetIndex == i + 1) {
                 drawSelectionCube(i)
             }
+
+            // Сохраняем матрицу Земли для Луны (индекс 2 — Земля)
+            if (i == 2) {
+                System.arraycopy(planets[i].modelMatrix, 0, earthMatrix, 0, 16)
+            }
         }
 
         moon?.let {
-            it.modelMatrix.identity()
-            it.modelMatrix.rotate(orbitTilt, 1f, 0f, 0f)
-            it.modelMatrix.rotate(planetAngles[2], 0f, 1f, 0f)
-            it.modelMatrix.translate(planetDistances[2], 0f, 0f)
-            it.modelMatrix.rotate(moonAngle, 0f, 1f, 0f)
-            it.modelMatrix.translate(moonDistance, 0f, 0f)
+            // Увеличиваем углы
+            moonAngle += 4.0f   // скорость вращения Луны вокруг своей оси
+
+            // Копируем матрицу Земли (чтобы Луна двигалась вместе с Землёй)
+            System.arraycopy(earthMatrix, 0, it.modelMatrix, 0, 16)
+
+            // Перпендикулярно эклиптике (как в примере)
+            Matrix.rotateM(it.modelMatrix, 0, 90f, 1f, 0f, 0f)
+
+            // Орбитальное вращение вокруг Земли
+            val moonOrbitAngle = moonAngle * 1.0f  // Луна делает ~12 оборотов за один оборот Земли
+            Matrix.rotateM(it.modelMatrix, 0, moonOrbitAngle, 0f, 1f, 0f)
+
+            // Смещение от центра Земли
+            Matrix.translateM(it.modelMatrix, 0, 0f, 0f, moonDistance)
+
+            // Вращение Луны вокруг своей оси (синхронное)
+            Matrix.rotateM(it.modelMatrix, 0, moonAngle, 0f, 1f, 0f)
+
             it.draw(vpMatrix)
 
             if (selectedPlanetIndex == 9) {
@@ -174,12 +192,28 @@ class MyGLRenderer(private val context: Context) : GLSurfaceView.Renderer {
         val scale = 0.1f * 1.8f
         val model = FloatArray(16)
         Matrix.setIdentityM(model, 0)
-        model.rotate(orbitTilt, 1f, 0f, 0f)
-        model.rotate(planetAngles[2], 0f, 1f, 0f)
-        model.translate(planetDistances[2], 0f, 0f)
-        model.rotate(moonAngle, 0f, 1f, 0f)
-        model.translate(moonDistance, 0f, 0f)
-        model.scale(scale, scale, scale)
+
+        // ТОЧНО ТАКАЯ ЖЕ ПОСЛЕДОВАТЕЛЬНОСТЬ, КАК У ЛУНЫ В onDrawFrame
+
+        // 1. Копируем матрицу Земли (чтобы куб был привязан к Земле)
+        System.arraycopy(earthMatrix, 0, model, 0, 16)
+
+        // 2. Перпендикулярно эклиптике (как у Луны)
+        Matrix.rotateM(model, 0, 90f, 1f, 0f, 0f)
+
+        // 3. Орбитальное вращение вокруг Земли (точно тот же угол!)
+        val moonOrbitAngle = moonAngle * 1.0f  // ← тот же коэффициент, что в onDrawFrame
+        Matrix.rotateM(model, 0, moonOrbitAngle, 0f, 1f, 0f)
+
+        // 4. Смещение от центра Земли (точно то же расстояние)
+        Matrix.translateM(model, 0, 0f, 0f, moonDistance)
+
+        // 5. Вращение вокруг своей оси Луны (синхронное)
+        Matrix.rotateM(model, 0, moonAngle, 0f, 1f, 0f)
+
+        // 6. Масштабируем куб под размер Луны
+        Matrix.scaleM(model, 0, scale, scale, scale)
+
         selectionCube.draw(vpMatrix, model, floatArrayOf(0f, 1f, 1f, 0.3f))
     }
 

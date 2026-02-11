@@ -36,14 +36,20 @@ class Sphere(
 
     fun draw(vpMatrix: FloatArray) {
         val scaledMatrix = FloatArray(16)
+
+        // Создаём матрицу масштаба
         Matrix.setIdentityM(scaledMatrix, 0)
         Matrix.scaleM(scaledMatrix, 0, radius, radius, radius)
-        Matrix.multiplyMM(scaledMatrix, 0, modelMatrix, 0, scaledMatrix, 0)
+
+        // Правильное умножение: modelMatrix × scale
+        // (все translate/rotate применяются ПОСЛЕ масштаба в локальной системе)
+        val finalMatrix = FloatArray(16)
+        Matrix.multiplyMM(finalMatrix, 0, modelMatrix, 0, scaledMatrix, 0)
 
         if (usePhong) {
-            ShaderProgram.drawSpherePhong(vpMatrix, scaledMatrix, textureId, vbo, ibo, vertexCount)
+            ShaderProgram.drawSpherePhong(vpMatrix, finalMatrix, textureId, vbo, ibo, vertexCount)
         } else {
-            ShaderProgram.drawSphere(vpMatrix, scaledMatrix, textureId, vbo, ibo, vertexCount)
+            ShaderProgram.drawSphere(vpMatrix, finalMatrix, textureId, vbo, ibo, vertexCount)
         }
     }
 }

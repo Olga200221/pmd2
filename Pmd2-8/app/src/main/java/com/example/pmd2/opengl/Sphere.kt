@@ -7,46 +7,59 @@ class Sphere(
     context: Context,
     textureRes: Int,
     val radius: Float,
-    private val usePhong: Boolean = false
+    private val usePhong: Boolean = false,
+    val isProcedural: Boolean = false  // ← добавлен параметр
 ) {
 
     var modelMatrix = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
     private val textureId: Int
 
-
-    private val vbo: Int
-    private val ibo: Int
-    private val vertexCount: Int
+    // Делаем поля доступными для MyGLRenderer (internal = доступ в модуле)
+    internal val vbo: Int
+    internal val ibo: Int
+    internal val vertexCount: Int
 
     init {
-        textureId = ShaderProgram.loadTexture(context, textureRes)
+        // Для procedural (Нептун) текстуру не загружаем
+        textureId = if (isProcedural) 0 else ShaderProgram.loadTexture(context, textureRes)
 
-        val sphereData = ShaderProgram.createSphereData(1.0f, 48, 48, usePhong)
+        // Генерируем данные сферы (с нормалями, если Phong или procedural)
+        val sphereData = ShaderProgram.createSphereData(
+            1.0f,
+            48,
+            48,
+            usePhong || isProcedural
+        )
 
         vbo = ShaderProgram.createVBO(sphereData.vertices)
         ibo = ShaderProgram.createIBO(sphereData.indices)
         vertexCount = sphereData.indices.size
 
-        if (usePhong) {
-            ShaderProgram.initPhongShader()
+        // Инициализируем нужный шейдер
+        if (isProcedural || usePhong) {
+            ShaderProgram.initPhongShader()     // procedural тоже использует нормали
         } else {
             ShaderProgram.initStandardShader()
         }
     }
 
     fun draw(vpMatrix: FloatArray) {
-        val scaledMatrix = FloatArray(16)
+        val scaleMatrix = FloatArray(16).apply {
+            Matrix.setIdentityM(this, 0)
+            Matrix.scaleM(this, 0, radius, radius, radius)
+        }
 
-        // Создаём матрицу масштаба
-        Matrix.setIdentityM(scaledMatrix, 0)
-        Matrix.scaleM(scaledMatrix, 0, radius, radius, radius)
-
-        // Правильное умножение: modelMatrix × scale
-        // (все translate/rotate применяются ПОСЛЕ масштаба в локальной системе)
         val finalMatrix = FloatArray(16)
-        Matrix.multiplyMM(finalMatrix, 0, modelMatrix, 0, scaledMatrix, 0)
+        // Правильный порядок: modelMatrix × scale (масштаб применяется в локальной системе)
+        Matrix.multiplyMM(finalMatrix, 0, modelMatrix, 0, scaleMatrix, 0)
 
-        if (usePhong) {
+        if (isProcedural) {
+            // Процедурный рендеринг Нептуна (время передаётся отдельно из рендерера)
+            // Здесь мы не передаём time, т.к. draw() вызывается для обычных сфер
+            // Для Нептуна в MyGLRenderer будет отдельный вызов drawSphereNeptune
+            // Поэтому здесь можно оставить заглушку или бросить исключение
+            throw IllegalStateException("Procedural spheres must be drawn via drawSphereNeptune")
+        } else if (usePhong) {
             ShaderProgram.drawSpherePhong(vpMatrix, finalMatrix, textureId, vbo, ibo, vertexCount)
         } else {
             ShaderProgram.drawSphere(vpMatrix, finalMatrix, textureId, vbo, ibo, vertexCount)

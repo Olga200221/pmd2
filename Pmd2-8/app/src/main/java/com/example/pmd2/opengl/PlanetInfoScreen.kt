@@ -17,11 +17,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.pmd2.R
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
-import androidx.compose.ui.unit.sp
 
 @Composable
 fun PlanetInfoScreen(
@@ -31,27 +31,28 @@ fun PlanetInfoScreen(
     val context = LocalContext.current
 
     val isLuna = selectedIndex == 9
-    val isNeptuneWater = selectedIndex == 8
+    val isNeptune = selectedIndex == 8  // ← исправлено: Нептун = 8
 
     val title = when {
         isLuna -> "Луна"
-        isNeptuneWater -> "Нептун"
-        else -> "Неизвестный объект"
+        isNeptune -> "Нептун"
+        else -> "Планета"
     }
 
     val description = when {
         isLuna -> "Луна — единственный естественный спутник Земли. Диаметр около 3474 км (примерно 1/4 Земли). " +
                 "Поверхность покрыта кратерами, нет атмосферы, поэтому днём температура до +127 °C, ночью до -173 °C. " +
                 "Всегда повёрнута к Земле одной стороной (синхронное вращение)."
-        isNeptuneWater -> "Нептун — восьмая и самая дальняя планета. Ледяной гигант с самыми сильными ветрами (до 2100 км/ч). " +
-                "Здесь показана фантастическая интерпретация его поверхности как бесконечная водная гладь с волнами."
+        isNeptune -> "Нептун — восьмая и самая дальняя планета Солнечной системы. Ледяной гигант с самыми сильными ветрами в Солнечной системе (до 2100 км/ч). " +
+                "Атмосфера состоит в основном из водорода, гелия и метана, который придаёт планете характерный глубокий синий цвет. " +
+                "Здесь показана процедурная симуляция его динамичной атмосферы с движущимися переливающимися волнами."
         else -> "Описание отсутствует"
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)  // ← чёрный фон всего экрана
+            .background(Color.Black)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -64,14 +65,13 @@ fun PlanetInfoScreen(
             Button(
                 onClick = onBackClick,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF3D1E3F),  // тёмно-фиолетовый из палитры
+                    containerColor = Color(0xFF3D1E3F),
                     contentColor = Color.White
                 )
             ) {
                 Text("Назад")
             }
         }
-
 
         Box(
             modifier = Modifier
@@ -82,15 +82,10 @@ fun PlanetInfoScreen(
             AndroidView(factory = {
                 val glView = GLSurfaceView(it)
                 glView.setEGLContextClientVersion(2)
-
-
-                val usePhong = isLuna
-                glView.setRenderer(PlanetRenderer(context, selectedIndex, usePhong))
-
+                glView.setRenderer(PlanetRenderer(context, selectedIndex))
                 glView
             })
         }
-
 
         Column(
             modifier = Modifier
@@ -102,7 +97,7 @@ fun PlanetInfoScreen(
             Text(
                 text = title,
                 style = MaterialTheme.typography.headlineMedium.copy(
-                    color = Color(0xFFD1D3D0),  // светло-серый заголовок
+                    color = Color(0xFFD1D3D0),
                     fontSize = 32.sp
                 ),
                 modifier = Modifier.padding(bottom = 16.dp)
@@ -110,7 +105,7 @@ fun PlanetInfoScreen(
             Text(
                 text = description,
                 style = MaterialTheme.typography.bodyLarge.copy(
-                    color = Color(0xFFB78FB1),  // розово-лиловый текст
+                    color = Color(0xFFB78FB1),
                     fontSize = 18.sp,
                     lineHeight = 28.sp
                 ),
@@ -123,8 +118,7 @@ fun PlanetInfoScreen(
 
 class PlanetRenderer(
     private val context: Context,
-    private val index: Int,
-    private val usePhong: Boolean
+    private val index: Int
 ) : GLSurfaceView.Renderer {
 
     private lateinit var sphere: Sphere
@@ -132,43 +126,65 @@ class PlanetRenderer(
     private val projMatrix = FloatArray(16)
     private val vpMatrix = FloatArray(16)
     private var angle = 0f
+    private var time = 0f  // для анимации волн на Нептуне
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
 
         ShaderProgram.initStandardProgram()
-        if (usePhong) {
-            ShaderProgram.initPhongShader()
+        ShaderProgram.initPhongShader()
+
+        // Инициализируем процедурный шейдер только для Нептуна
+        if (index == 8) {
+            ShaderProgram.initNeptuneShader()
         }
 
+        // Выбор текстуры и типа шейдера
+        val textureRes: Int
+        val usePhong = true
+        val isProcedural = (index == 8)
 
-        val textureRes = when (index) {
-            9 -> R.drawable.moon
-            8 -> R.drawable.water
-            else -> R.drawable.earth
+        textureRes = when (index) {
+            9 -> R.drawable.moon      // Луна
+            8 -> 0                    // Нептун — procedural, без текстуры
+            else -> R.drawable.earth  // остальные планеты по умолчанию
         }
 
-        sphere = Sphere(context, textureRes, 1f, usePhong = usePhong)
+        sphere = Sphere(context, textureRes, 1.5f, usePhong = usePhong, isProcedural = isProcedural)
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         GLES20.glViewport(0, 0, width, height)
         val ratio = width.toFloat() / height.toFloat()
         Matrix.frustumM(projMatrix, 0, -ratio, ratio, -1f, 1f, 1f, 100f)
+
+        Matrix.setLookAtM(viewMatrix, 0, 0f, 0f, 3f, 0f, 0f, 0f, 0f, 1f, 0f)
+        Matrix.multiplyMM(vpMatrix, 0, projMatrix, 0, viewMatrix, 0)
     }
 
     override fun onDrawFrame(gl: GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
-        Matrix.setLookAtM(viewMatrix, 0, 0f, 0f, 3f, 0f, 0f, 0f, 0f, 1f, 0f)
-        Matrix.multiplyMM(vpMatrix, 0, projMatrix, 0, viewMatrix, 0)
+        time += 0.016f  // ≈60 fps
 
         angle += 0.5f
         sphere.modelMatrix.identity()
         sphere.modelMatrix.rotate(angle, 0f, 1f, 0f)
 
-        sphere.draw(vpMatrix)
+        if (index == 8 && sphere.isProcedural) {
+            // Рисуем Нептун с процедурными волнами
+            ShaderProgram.drawSphereNeptune(
+                vpMatrix,
+                sphere.modelMatrix,
+                sphere.vbo,
+                sphere.ibo,
+                sphere.vertexCount,
+                time
+            )
+        } else {
+            sphere.draw(vpMatrix)
+        }
     }
 
     private fun FloatArray.identity() = Matrix.setIdentityM(this, 0)

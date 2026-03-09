@@ -32,7 +32,7 @@ class MyGLRenderer(private val context: Context) : GLSurfaceView.Renderer {
     private val viewMatrix = FloatArray(16)
     private val vpMatrix = FloatArray(16)
     private val orthoMatrix = FloatArray(16)
-    private val earthMatrix = FloatArray(16)  // ← добавь эту строку
+    private val earthMatrix = FloatArray(16)
     private var angleSun = 0f
     private val planetAngles = FloatArray(8) { 0f }
     private var moonAngle = 0f
@@ -72,6 +72,7 @@ class MyGLRenderer(private val context: Context) : GLSurfaceView.Renderer {
         val bhTex = TextureHelper.loadTexture(context, R.drawable.black_hole)
         android.util.Log.d("MyGLRenderer", "black_hole texture ID: $bhTex")  // ← лог, чтобы увидеть, загрузилась ли текстура
         blackHoleDisk = Square(bhTex)
+
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -131,30 +132,22 @@ class MyGLRenderer(private val context: Context) : GLSurfaceView.Renderer {
                 drawSelectionCube(i)
             }
 
-            // Сохраняем матрицу Земли для Луны (индекс 2 — Земля)
             if (i == 2) {
                 System.arraycopy(planets[i].modelMatrix, 0, earthMatrix, 0, 16)
             }
         }
 
         moon?.let {
-            // Увеличиваем углы
-            moonAngle += 4.0f   // скорость вращения Луны вокруг своей оси
+            moonAngle += 4.0f
 
-            // Копируем матрицу Земли (чтобы Луна двигалась вместе с Землёй)
             System.arraycopy(earthMatrix, 0, it.modelMatrix, 0, 16)
 
-            // Перпендикулярно эклиптике (как в примере)
             Matrix.rotateM(it.modelMatrix, 0, 90f, 1f, 0f, 0f)
 
-            // Орбитальное вращение вокруг Земли
-            val moonOrbitAngle = moonAngle * 1.0f  // Луна делает ~12 оборотов за один оборот Земли
+            val moonOrbitAngle = moonAngle * 1.0f
             Matrix.rotateM(it.modelMatrix, 0, moonOrbitAngle, 0f, 1f, 0f)
 
-            // Смещение от центра Земли
             Matrix.translateM(it.modelMatrix, 0, 0f, 0f, moonDistance)
-
-            // Вращение Луны вокруг своей оси (синхронное)
             Matrix.rotateM(it.modelMatrix, 0, moonAngle, 0f, 1f, 0f)
 
             it.draw(vpMatrix)
@@ -193,25 +186,17 @@ class MyGLRenderer(private val context: Context) : GLSurfaceView.Renderer {
         val model = FloatArray(16)
         Matrix.setIdentityM(model, 0)
 
-        // ТОЧНО ТАКАЯ ЖЕ ПОСЛЕДОВАТЕЛЬНОСТЬ, КАК У ЛУНЫ В onDrawFrame
-
-        // 1. Копируем матрицу Земли (чтобы куб был привязан к Земле)
         System.arraycopy(earthMatrix, 0, model, 0, 16)
 
-        // 2. Перпендикулярно эклиптике (как у Луны)
         Matrix.rotateM(model, 0, 90f, 1f, 0f, 0f)
 
-        // 3. Орбитальное вращение вокруг Земли (точно тот же угол!)
-        val moonOrbitAngle = moonAngle * 1.0f  // ← тот же коэффициент, что в onDrawFrame
+        val moonOrbitAngle = moonAngle * 1.0f
         Matrix.rotateM(model, 0, moonOrbitAngle, 0f, 1f, 0f)
 
-        // 4. Смещение от центра Земли (точно то же расстояние)
         Matrix.translateM(model, 0, 0f, 0f, moonDistance)
 
-        // 5. Вращение вокруг своей оси Луны (синхронное)
         Matrix.rotateM(model, 0, moonAngle, 0f, 1f, 0f)
 
-        // 6. Масштабируем куб под размер Луны
         Matrix.scaleM(model, 0, scale, scale, scale)
 
         selectionCube.draw(vpMatrix, model, floatArrayOf(0f, 1f, 1f, 0.3f))

@@ -27,6 +27,14 @@ object ShaderProgram {
     private var phongSamplerLoc = -1
     private var phongLightPosLoc = -1
 
+    // Для Нептуна — процедурные волны
+    private var neptuneProgramId = 0
+    private var neptunePosLoc = -1
+    private var neptuneNormalLoc = -1
+    private var neptuneMVPMatrixLoc = -1
+    private var neptuneModelMatrixLoc = -1
+    private var neptuneLightPosLoc = -1
+    private var neptuneTimeLoc = -1
 
     fun initStandardProgram() {
         if (programId != 0 && GLES20.glIsProgram(programId)) {
@@ -180,6 +188,193 @@ object ShaderProgram {
         checkGlError("After creating Phong program")
     }
 
+    fun initNeptuneShader() {
+        if (neptuneProgramId != 0 && GLES20.glIsProgram(neptuneProgramId)) {
+            Log.i("ShaderProgram", "Neptune procedural program already exists and is valid")
+            return
+        }
+
+        Log.i("ShaderProgram", "Creating Neptune procedural program now...")
+
+        val vertexShaderCode = """
+            uniform mat4 uMVPMatrix;
+            uniform mat4 uModelMatrix;
+            uniform float uTime;
+            
+            attribute vec4 vPosition;
+            attribute vec3 aNormal;
+            
+            varying vec3 vNormal;
+            varying vec3 vPositionEye;
+            
+            float hash(vec3 p) {
+                p = fract(p*0.3183099+vec3(0.1));
+                p *= 17.0;
+                return fract(p.x*p.y*p.z*(p.x+p.y+p.z));
+            }
+            
+            float noise(vec3 x) {
+                vec3 i = floor(x);
+                vec3 f = fract(x);
+                f = f*f*(3.0-2.0*f);
+                
+                return mix(mix(mix( hash(i+vec3(0,0,0)), 
+                                    hash(i+vec3(1,0,0)),f.x),
+                               mix( hash(i+vec3(0,1,0)), 
+                                    hash(i+vec3(1,1,0)),f.x),f.y),
+                           mix(mix( hash(i+vec3(0,0,1)), 
+                                    hash(i+vec3(1,0,1)),f.x),
+                               mix( hash(i+vec3(0,1,1)), 
+                                    hash(i+vec3(1,1,1)),f.x),f.y),f.z);
+            }
+            
+            void main() {
+                vec3 pos = vPosition.xyz;
+                vec3 normal = normalize(aNormal);
+                
+                // Лёгкое смещение поверхности (волны)
+                float disp = noise(normal * 6.0 + uTime * 0.5) * 0.06;
+                disp += noise(normal * 14.0 - uTime * 0.8) * 0.025;
+                
+                pos += normal * disp;
+                
+                vec4 worldPos = uModelMatrix * vec4(pos, 1.0);
+                vPositionEye = worldPos.xyz;
+                vNormal = normalize(mat3(uModelMatrix) * normal);
+                
+                gl_Position = uMVPMatrix * vec4(pos, 1.0);
+            }
+        """.trimIndent()
+
+        val fragmentShaderCode = """
+    precision mediump float;
+    uniform vec3 uLightPos;
+    uniform float uTime;
+    
+    varying vec3 vNormal;
+    varying vec3 vPositionEye;
+    
+    float hash(vec3 p) {
+        p = fract(p * 0.3183099 + vec3(0.1));
+        p *= 17.0;
+        return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+    }
+    
+    float noise(vec3 x) {
+        vec3 i = floor(x);
+        vec3 f = fract(x);
+        f = f * f * (3.0 - 2.0 * f);
+        
+        return mix(mix(mix(hash(i + vec3(0,0,0)), 
+                           hash(i + vec3(1,0,0)), f.x),
+                       mix(hash(i + vec3(0,1,0)), 
+                           hash(i + vec3(1,1,0)), f.x), f.y),
+                   mix(mix(hash(i + vec3(0,0,1)), 
+                           hash(i + vec3(1,0,1)), f.x),
+                       mix(hash(i + vec3(0,1,1)), 
+                           hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+    }
+    
+    float fbm(vec3 p) {
+        float f = 0.0;
+        float amp = 0.5;
+        vec3 shift = vec3(100.0);
+        for (int i = 0; i < 6; ++i) {
+            f += amp * noise(p);
+            p = p * 2.0 + shift;
+            amp *= 0.5;
+        }
+        return f;
+    }
+    
+    void main() {
+        vec3 N = normalize(vNormal);
+        vec3 L = normalize(uLightPos - vPositionEye);
+        vec3 V = normalize(-vPositionEye);
+        vec3 R = reflect(-L, N);
+        
+        float lambert = max(dot(N, L), 0.0);
+        float spec = pow(max(dot(R, V), 0.0), 64.0);
+        
+        // Позиция в сферических координатах для полос по широте
+        vec3 pos = normalize(vPositionEye);
+        float lat = asin(pos.y);               // широта
+        float lon = atan(pos.x, pos.z);        // долгота
+        
+        float t = uTime * 0.12;                // глобальная скорость
+        
+        // Слой 1: большие полосы и зоны (медленные)
+        float n1 = fbm(vec3(lon * 3.0, lat * 1.5, t * 0.4));
+        
+        // Слой 2: средние вихри и течения
+        float n2 = fbm(vec3(lon * 8.0 + sin(t + lat * 4.0), lat * 4.0, t * 1.1));
+        
+        // Слой 3: мелкие быстрые детали
+        float n3 = fbm(vec3(lon * 20.0 - t * 2.5, lat * 10.0 + cos(t * 3.0), t * 2.8));
+        
+        float wave = n1 * 0.55 + n2 * 0.30 + n3 * 0.15;
+        wave = smoothstep(0.35, 0.75, wave);   // контрастные переходы
+        
+        // Цвета — многослойные, без белого
+        vec3 colorDeep   = vec3(0.008, 0.03, 0.18);   // очень тёмный синий-фиолетовый
+        vec3 colorMid    = vec3(0.02, 0.22, 0.65);    // глубокий синий
+        vec3 colorBright = vec3(0.18, 0.65, 0.95);    // яркий бирюзово-голубой
+        vec3 colorLight  = vec3(0.40, 0.85, 1.00);    // светлый голубой (гребни)
+        
+        vec3 base = mix(colorDeep, colorMid, wave * 0.6);
+        base = mix(base, colorBright, pow(wave, 2.5) * 0.7);
+        base += colorLight * pow(wave, 4.0) * 0.45;   // тонкие светлые полосы
+        
+        // Освещение
+        vec3 lit = base * (0.12 + 0.88 * lambert);
+        lit += vec3(0.6, 0.85, 1.0) * spec * 0.7;
+        
+        // Мягкий fresnel по краям
+        float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.5);
+        lit += vec3(0.15, 0.5, 0.9) * fresnel * 1.4;
+        
+        gl_FragColor = vec4(lit, 1.0);
+    }
+""".trimIndent()
+
+        val vertexShader = loadAndCompileShader(GLES20.GL_VERTEX_SHADER, vertexShaderCode, "Neptune VS")
+        val fragmentShader = loadAndCompileShader(GLES20.GL_FRAGMENT_SHADER, fragmentShaderCode, "Neptune FS")
+
+        neptuneProgramId = GLES20.glCreateProgram()
+        if (neptuneProgramId == 0) {
+            Log.e("ShaderProgram", "Failed to create Neptune program")
+            return
+        }
+
+        GLES20.glAttachShader(neptuneProgramId, vertexShader)
+        GLES20.glAttachShader(neptuneProgramId, fragmentShader)
+        GLES20.glLinkProgram(neptuneProgramId)
+
+        checkLinkStatus(neptuneProgramId, "Neptune procedural shader program")
+
+        if (GLES20.glIsProgram(neptuneProgramId)) {
+            neptunePosLoc = GLES20.glGetAttribLocation(neptuneProgramId, "vPosition")
+            neptuneNormalLoc = GLES20.glGetAttribLocation(neptuneProgramId, "aNormal")
+            neptuneMVPMatrixLoc = GLES20.glGetUniformLocation(neptuneProgramId, "uMVPMatrix")
+            neptuneModelMatrixLoc = GLES20.glGetUniformLocation(neptuneProgramId, "uModelMatrix")
+            neptuneLightPosLoc = GLES20.glGetUniformLocation(neptuneProgramId, "uLightPos")
+            neptuneTimeLoc = GLES20.glGetUniformLocation(neptuneProgramId, "uTime")
+
+            logLocationErrors("Neptune", mapOf(
+                "vPosition" to neptunePosLoc,
+                "aNormal" to neptuneNormalLoc,
+                "uMVPMatrix" to neptuneMVPMatrixLoc,
+                "uModelMatrix" to neptuneModelMatrixLoc,
+                "uLightPos" to neptuneLightPosLoc,
+                "uTime" to neptuneTimeLoc
+            ))
+        }
+
+        GLES20.glDeleteShader(vertexShader)
+        GLES20.glDeleteShader(fragmentShader)
+        checkGlError("After creating Neptune program")
+    }
+
     private fun loadAndCompileShader(type: Int, code: String, name: String): Int {
         val shader = GLES20.glCreateShader(type)
         if (shader == 0) {
@@ -214,6 +409,7 @@ object ShaderProgram {
             GLES20.glDeleteProgram(program)
             if (program == phongProgramId) phongProgramId = 0
             if (program == programId) programId = 0
+            if (program == neptuneProgramId) neptuneProgramId = 0
         } else {
             Log.i("ShaderProgram", "$name linked successfully")
         }
@@ -408,7 +604,6 @@ object ShaderProgram {
         GLES20.glUniformMatrix4fv(phongMVPMatrixLoc, 1, false, mvp, 0)
         GLES20.glUniformMatrix4fv(phongModelMatrixLoc, 1, false, modelMatrix, 0)
 
-
         val lightWorldPos = floatArrayOf(5f, 5f, 5f, 1f)
         val invModelMatrix = FloatArray(16)
         val lightModelPos = FloatArray(4)
@@ -424,7 +619,6 @@ object ShaderProgram {
             Log.w("ShaderProgram", "Cannot invert model matrix, using fallback light position")
             GLES20.glUniform3f(phongLightPosLoc, 0f, 0f, 5f)
         }
-
 
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
@@ -449,6 +643,67 @@ object ShaderProgram {
         GLES20.glDisableVertexAttribArray(phongPosLoc)
         GLES20.glDisableVertexAttribArray(phongNormalLoc)
         GLES20.glDisableVertexAttribArray(phongTexLoc)
+
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
+    }
+
+    fun drawSphereNeptune(
+        vpMatrix: FloatArray,
+        modelMatrix: FloatArray,
+        vbo: Int,
+        ibo: Int,
+        vertexCount: Int,
+        time: Float
+    ) {
+        if (neptuneProgramId == 0 || !GLES20.glIsProgram(neptuneProgramId)) {
+            Log.e("drawSphereNeptune", "Neptune program is invalid — recreating")
+            initNeptuneShader()
+            if (neptuneProgramId == 0) return
+        }
+
+        GLES20.glUseProgram(neptuneProgramId)
+        checkGlError("glUseProgram neptune")
+
+        val mvp = FloatArray(16)
+        Matrix.multiplyMM(mvp, 0, vpMatrix, 0, modelMatrix, 0)
+        GLES20.glUniformMatrix4fv(neptuneMVPMatrixLoc, 1, false, mvp, 0)
+        GLES20.glUniformMatrix4fv(neptuneModelMatrixLoc, 1, false, modelMatrix, 0)
+
+        // Свет (как в Phong)
+        val lightWorldPos = floatArrayOf(5f, 5f, 5f, 1f)
+        val invModelMatrix = FloatArray(16)
+        val lightModelPos = FloatArray(4)
+
+        if (Matrix.invertM(invModelMatrix, 0, modelMatrix, 0)) {
+            Matrix.multiplyMV(lightModelPos, 0, invModelMatrix, 0, lightWorldPos, 0)
+            GLES20.glUniform3f(neptuneLightPosLoc,
+                lightModelPos[0] / lightModelPos[3],
+                lightModelPos[1] / lightModelPos[3],
+                lightModelPos[2] / lightModelPos[3]
+            )
+        } else {
+            GLES20.glUniform3f(neptuneLightPosLoc, 0f, 0f, 5f)
+        }
+
+        // Время для анимации волн
+        GLES20.glUniform1f(neptuneTimeLoc, time)
+
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo)
+        GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, ibo)
+
+        val stride = 8 * 4  // pos(3) + normal(3) + uv(2) — но uv не используем
+        GLES20.glEnableVertexAttribArray(neptunePosLoc)
+        GLES20.glVertexAttribPointer(neptunePosLoc, 3, GLES20.GL_FLOAT, false, stride, 0)
+
+        GLES20.glEnableVertexAttribArray(neptuneNormalLoc)
+        GLES20.glVertexAttribPointer(neptuneNormalLoc, 3, GLES20.GL_FLOAT, false, stride, 3 * 4)
+
+        GLES20.glDrawElements(GLES20.GL_TRIANGLES, vertexCount, GLES20.GL_UNSIGNED_SHORT, 0)
+        checkGlError("drawSphereNeptune after draw")
+
+        GLES20.glDisableVertexAttribArray(neptunePosLoc)
+        GLES20.glDisableVertexAttribArray(neptuneNormalLoc)
 
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
         GLES20.glBindBuffer(GLES20.GL_ELEMENT_ARRAY_BUFFER, 0)
